@@ -12,6 +12,7 @@ import { Identifier } from "../id/id"
 import { Agent } from "../agent/agent"
 import { Permission } from "../permission"
 import { Wildcard } from "../util/wildcard"
+import { expandPermissionPatterns } from "../util/permission"
 
 const DEFAULT_READ_LIMIT = 2000
 const MAX_LINE_LENGTH = 2000
@@ -40,7 +41,8 @@ export const ReadTool = Tool.define("read", {
           ? { "*": agent.permission.external_files }
           : agent.permission.external_files
 
-      const action = Wildcard.all(filepath, permissions)
+      const expandedPermissions = expandPermissionPatterns(permissions)
+      const action = Wildcard.all(filepath, expandedPermissions)
 
       if (action === "deny") {
         throw new Error(`File ${filepath} is not in the current working directory`)

@@ -11,6 +11,7 @@ import { Filesystem } from "../util/filesystem"
 import { Instance } from "../project/instance"
 import { Agent } from "../agent/agent"
 import { Wildcard } from "../util/wildcard"
+import { expandPermissionPatterns } from "../util/permission"
 
 export const WriteTool = Tool.define("write", {
   description: DESCRIPTION,
@@ -32,7 +33,8 @@ export const WriteTool = Tool.define("write", {
           ? { "*": agent.permission.external_files }
           : agent.permission.external_files
 
-      const action = Wildcard.all(filepath, permissions)
+      const expandedPermissions = expandPermissionPatterns(permissions)
+      const action = Wildcard.all(filepath, expandedPermissions)
 
       if (action === "deny") {
         throw new Error(`File ${filepath} is not in the current working directory`)

@@ -12,6 +12,7 @@ import { Patch } from "../patch"
 import { Filesystem } from "../util/filesystem"
 import { createTwoFilesPatch } from "diff"
 import { Wildcard } from "../util/wildcard"
+import { expandPermissionPatterns } from "../util/permission"
 
 const PatchParams = z.object({
   patchText: z.string().describe("The full patch text that describes all changes to be made"),
@@ -60,7 +61,8 @@ export const PatchTool = Tool.define("patch", {
             ? { "*": agent.permission.external_files }
             : agent.permission.external_files
 
-        const action = Wildcard.all(filePath, permissions)
+        const expandedPermissions = expandPermissionPatterns(permissions)
+        const action = Wildcard.all(filePath, expandedPermissions)
 
         if (action === "deny") {
           throw new Error(`File ${filePath} is not in the current working directory`)

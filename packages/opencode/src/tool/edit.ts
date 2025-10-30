@@ -18,6 +18,7 @@ import { Instance } from "../project/instance"
 import { Agent } from "../agent/agent"
 import { Snapshot } from "@/snapshot"
 import { Wildcard } from "../util/wildcard"
+import { expandPermissionPatterns } from "../util/permission"
 
 export const EditTool = Tool.define("edit", {
   description: DESCRIPTION,
@@ -52,7 +53,8 @@ export const EditTool = Tool.define("edit", {
           ? { "*": agent.permission.external_files }
           : agent.permission.external_files
 
-      const action = Wildcard.all(filePath, permissions)
+      const expandedPermissions = expandPermissionPatterns(permissions)
+      const action = Wildcard.all(filePath, expandedPermissions)
 
       if (action === "deny") {
         throw new Error(`File ${filePath} is not in the current working directory`)

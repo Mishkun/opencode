@@ -20,6 +20,7 @@ export namespace Agent {
         edit: Config.Permission,
         bash: z.record(z.string(), Config.Permission),
         webfetch: Config.Permission.optional(),
+        external_files: z.record(z.string(), Config.Permission),
       }),
       model: z
         .object({
@@ -45,6 +46,9 @@ export namespace Agent {
         "*": "allow",
       },
       webfetch: "allow",
+      external_files: {
+        "*": "ask",
+      },
     }
     const agentPermission = mergeAgentPermissions(defaultPermission, cfg.permission ?? {})
 
@@ -90,6 +94,9 @@ export namespace Agent {
           "*": "ask",
         },
         webfetch: "allow",
+        external_files: {
+          "*": "ask",
+        },
       },
       cfg.permission ?? {},
     )
@@ -143,7 +150,18 @@ export namespace Agent {
           tools: {},
           builtIn: false,
         }
-      const { name, model, prompt, tools, description, temperature, top_p, mode, permission, ...extra } = value
+      const {
+        name,
+        model,
+        prompt,
+        tools,
+        description,
+        temperature,
+        top_p,
+        mode,
+        permission,
+        ...extra
+      } = value
       item.options = {
         ...item.options,
         ...extra,
@@ -212,7 +230,10 @@ export namespace Agent {
   }
 }
 
-function mergeAgentPermissions(basePermission: any, overridePermission: any): Agent.Info["permission"] {
+function mergeAgentPermissions(
+  basePermission: any,
+  overridePermission: any,
+): Agent.Info["permission"] {
   if (typeof basePermission.bash === "string") {
     basePermission.bash = {
       "*": basePermission.bash,
@@ -223,6 +244,18 @@ function mergeAgentPermissions(basePermission: any, overridePermission: any): Ag
       "*": overridePermission.bash,
     }
   }
+
+  if (typeof basePermission.external_files === "string") {
+    basePermission.external_files = {
+      "*": basePermission.external_files,
+    }
+  }
+  if (typeof overridePermission.external_files === "string") {
+    overridePermission.external_files = {
+      "*": overridePermission.external_files,
+    }
+  }
+
   const merged = mergeDeep(basePermission ?? {}, overridePermission ?? {}) as any
   let mergedBash
   if (merged.bash) {
@@ -240,10 +273,27 @@ function mergeAgentPermissions(basePermission: any, overridePermission: any): Ag
     }
   }
 
+  let mergedExternalFiles
+  if (merged.external_files) {
+    if (typeof merged.external_files === "string") {
+      mergedExternalFiles = {
+        "*": merged.external_files,
+      }
+    } else if (typeof merged.external_files === "object") {
+      mergedExternalFiles = mergeDeep(
+        {
+          "*": "ask",
+        },
+        merged.external_files,
+      )
+    }
+  }
+
   const result: Agent.Info["permission"] = {
     edit: merged.edit ?? "allow",
     webfetch: merged.webfetch ?? "allow",
     bash: mergedBash ?? { "*": "allow" },
+    external_files: mergedExternalFiles ?? { "*": "ask" },
   }
 
   return result

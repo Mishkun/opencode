@@ -11,6 +11,7 @@ import { Agent } from "../agent/agent"
 import { Patch } from "../patch"
 import { Filesystem } from "../util/filesystem"
 import { createTwoFilesPatch } from "diff"
+import { Wildcard } from "../util/wildcard"
 
 const PatchParams = z.object({
   patchText: z.string().describe("The full patch text that describes all changes to be made"),
@@ -54,7 +55,31 @@ export const PatchTool = Tool.define("patch", {
       const filePath = path.resolve(Instance.directory, hunk.path)
 
       if (!Filesystem.contains(Instance.directory, filePath)) {
-        throw new Error(`File ${filePath} is not in the current working directory`)
+        const permissions =
+          typeof agent.permission.external_files === "string"
+            ? { "*": agent.permission.external_files }
+            : agent.permission.external_files
+
+        const action = Wildcard.all(filePath, permissions)
+
+        if (action === "deny") {
+          throw new Error(`File ${filePath} is not in the current working directory`)
+        }
+
+        if (action === "ask") {
+          await Permission.ask({
+            type: "external_files",
+            pattern: filePath,
+            sessionID: ctx.sessionID,
+            messageID: ctx.messageID,
+            callID: ctx.callID,
+            title: `${hunk.type === "add" ? "Create" : hunk.type === "update" ? "Edit" : "Delete"} file outside working directory: ${path.relative(Instance.worktree, filePath)}`,
+            metadata: {
+              filepath: path.relative(Instance.worktree, filePath),
+              operation: hunk.type,
+            },
+          })
+        }
       }
 
       switch (hunk.type) {

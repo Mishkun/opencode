@@ -10,17 +10,50 @@ import { FileTime } from "../file/time"
 import { Filesystem } from "../util/filesystem"
 import { Instance } from "../project/instance"
 import { Agent } from "../agent/agent"
+import { Wildcard } from "../util/wildcard"
 
 export const WriteTool = Tool.define("write", {
   description: DESCRIPTION,
   parameters: z.object({
-    filePath: z.string().describe("The absolute path to the file to write (must be absolute, not relative)"),
+    filePath: z
+      .string()
+      .describe("The absolute path to the file to write (must be absolute, not relative)"),
     content: z.string().describe("The content to write to the file"),
   }),
   async execute(params, ctx) {
-    const filepath = path.isAbsolute(params.filePath) ? params.filePath : path.join(Instance.directory, params.filePath)
+    const filepath = path.isAbsolute(params.filePath)
+      ? params.filePath
+      : path.join(Instance.directory, params.filePath)
+
     if (!Filesystem.contains(Instance.directory, filepath)) {
-      throw new Error(`File ${filepath} is not in the current working directory`)
+      const agent = await Agent.get(ctx.agent)
+      const permissions =
+        typeof agent.permission.external_files === "string"
+          ? { "*": agent.permission.external_files }
+          : agent.permission.external_files
+
+      const action = Wildcard.all(filepath, permissions)
+
+      if (action === "deny") {
+        throw new Error(`File ${filepath} is not in the current working directory`)
+      }
+
+      if (action === "ask") {
+        const file = Bun.file(filepath)
+        await Permission.ask({
+          type: "external_files",
+          pattern: filepath,
+          sessionID: ctx.sessionID,
+          messageID: ctx.messageID,
+          callID: ctx.callID,
+          title: `Write file outside working directory: ${path.relative(Instance.worktree, filepath)}`,
+          metadata: {
+            filepath: path.relative(Instance.worktree, filepath),
+            operation: "write",
+            exists: await file.exists(),
+          },
+        })
+      }
     }
 
     const file = Bun.file(filepath)

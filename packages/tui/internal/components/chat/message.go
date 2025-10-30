@@ -506,6 +506,16 @@ func renderToolDetails(
 		muted := base.Foreground(t.TextMuted()).Render
 		if permission.Type == "doom-loop" {
 			permissionContent = permission.Title + "\n\n"
+		} else if permission.Type == "external_files" {
+			permissionContent = "Permission required to access file outside working directory:\n\n"
+			if permission.Metadata != nil {
+				if filepath, ok := permission.Metadata["filepath"].(string); ok {
+					permissionContent += fmt.Sprintf("Path: %s\n", filepath)
+				}
+				if operation, ok := permission.Metadata["operation"].(string); ok {
+					permissionContent += fmt.Sprintf("Operation: %s\n\n", operation)
+				}
+			}
 		} else {
 			permissionContent = "Permission required to run this tool:\n\n"
 		}

@@ -1,9 +1,10 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test, spyOn } from "bun:test"
 import path from "path"
 import { PatchTool } from "../../src/tool/patch"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 import * as fs from "fs/promises"
+import { Permission } from "../../src/permission"
 
 const ctx = {
   sessionID: "test",
@@ -21,7 +22,9 @@ describe("tool.patch", () => {
     await Instance.provide({
       directory: "/tmp",
       fn: async () => {
-        await expect(patchTool.execute({ patchText: "" }, ctx)).rejects.toThrow("patchText is required")
+        await expect(patchTool.execute({ patchText: "" }, ctx)).rejects.toThrow(
+          "patchText is required",
+        )
       },
     })
   })
@@ -30,7 +33,9 @@ describe("tool.patch", () => {
     await Instance.provide({
       directory: "/tmp",
       fn: async () => {
-        await expect(patchTool.execute({ patchText: "invalid patch" }, ctx)).rejects.toThrow("Failed to parse patch")
+        await expect(patchTool.execute({ patchText: "invalid patch" }, ctx)).rejects.toThrow(
+          "Failed to parse patch",
+        )
       },
     })
   })
@@ -113,7 +118,9 @@ describe("tool.patch", () => {
         // Verify file was created with correct content
         const filePath = path.join(fixture.path, "config.js")
         const content = await fs.readFile(filePath, "utf-8")
-        expect(content).toBe('const API_KEY = "test-key"\nconst DEBUG = false\nconst VERSION = "1.0"')
+        expect(content).toBe(
+          'const API_KEY = "test-key"\nconst DEBUG = false\nconst VERSION = "1.0"',
+        )
       },
     })
   })
@@ -256,5 +263,131 @@ describe("tool.patch", () => {
         expect(configContent).toBe('{\n  "version": "1.0",\n  "debug": true\n}')
       },
     })
+  })
+
+  test("should ask permission for external files with default config", async () => {
+    await using tmp = await tmpdir()
+    const externalFile = path.join(path.dirname(tmp.path), "external.txt")
+    await Bun.write(externalFile, "line 1\nline 2\nline 3")
+
+    const permissionSpy = spyOn(Permission, "ask").mockImplementation(async () => Promise.resolve())
+
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const patchText = `*** Begin Patch
+*** Update File: ${externalFile}
+@@ -1,3 +1,3 @@
+ line 1
+-line 2
++modified
+ line 3
+*** End Patch`
+
+          await patchTool.execute({ patchText }, ctx)
+
+          expect(permissionSpy).toHaveBeenCalled()
+          const externalFilesCall = permissionSpy.mock.calls.find(
+            (call) => call[0].type === "external_files",
+          )
+          expect(externalFilesCall).toBeDefined()
+          expect(externalFilesCall[0].metadata.operation).toBe("update")
+        },
+      })
+    } finally {
+      permissionSpy.mockRestore()
+    }
+  })
+
+  test("should allow external files when configured to allow", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            permission: {
+              external_files: "allow",
+            },
+          }),
+        )
+      },
+    })
+
+    const externalFile = path.join(path.dirname(tmp.path), "external.txt")
+    await Bun.write(externalFile, "line 1\nline 2\nline 3")
+
+    const permissionSpy = spyOn(Permission, "ask").mockImplementation(async () => Promise.resolve())
+
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const patchText = `*** Begin Patch
+*** Update File: ${externalFile}
+@@ -1,3 +1,3 @@
+ line 1
+-line 2
++modified
+ line 3
+*** End Patch`
+
+          await patchTool.execute({ patchText }, ctx)
+
+          const externalFilesCall = permissionSpy.mock.calls.find(
+            (call) => call[0].type === "external_files",
+          )
+          expect(externalFilesCall).toBeUndefined()
+
+          const content = await Bun.file(externalFile).text()
+          expect(content).toContain("modified")
+        },
+      })
+    } finally {
+      permissionSpy.mockRestore()
+    }
+  })
+
+  test("should deny external files when configured to deny", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            permission: {
+              external_files: "deny",
+            },
+          }),
+        )
+      },
+    })
+
+    const externalFile = path.join(path.dirname(tmp.path), "external.txt")
+    await Bun.write(externalFile, "line 1\nline 2\nline 3")
+
+    const permissionSpy = spyOn(Permission, "ask").mockImplementation(async () => Promise.resolve())
+
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const patchText = `*** Begin Patch
+*** Update File: ${externalFile}
+@@ -1,3 +1,3 @@
+ line 1
+-line 2
++modified
+ line 3
+*** End Patch`
+
+          await expect(patchTool.execute({ patchText }, ctx)).rejects.toThrow(
+            "is not in the current working directory",
+          )
+          expect(permissionSpy).not.toHaveBeenCalled()
+        },
+      })
+    } finally {
+      permissionSpy.mockRestore()
+    }
   })
 })

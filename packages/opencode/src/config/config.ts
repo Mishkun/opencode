@@ -383,6 +383,7 @@ export namespace Config {
           edit: Permission.optional(),
           bash: z.union([Permission, z.record(z.string(), Permission)]).optional(),
           webfetch: Permission.optional(),
+          external_files: z.union([Permission, z.record(z.string(), Permission)]).optional(),
         })
         .optional(),
     })
@@ -706,6 +707,7 @@ export namespace Config {
           edit: Permission.optional(),
           bash: z.union([Permission, z.record(z.string(), Permission)]).optional(),
           webfetch: Permission.optional(),
+          external_files: z.union([Permission, z.record(z.string(), Permission)]).optional(),
         })
         .optional(),
       tools: z.record(z.string(), z.boolean()).optional(),

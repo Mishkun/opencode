@@ -17,7 +17,10 @@ export namespace Agent {
       topP: z.number().optional(),
       temperature: z.number().optional(),
       permission: z.object({
-        edit: Config.Permission,
+        edit: z.object({
+          enabled: Config.Permission,
+          external_files: Config.Permission,
+        }),
         bash: z.record(z.string(), Config.Permission),
         webfetch: Config.Permission.optional(),
       }),
@@ -40,7 +43,10 @@ export namespace Agent {
     const cfg = await Config.get()
     const defaultTools = cfg.tools ?? {}
     const defaultPermission: Info["permission"] = {
-      edit: "allow",
+      edit: {
+        enabled: "allow",
+        external_files: "ask",
+      },
       bash: {
         "*": "allow",
       },
@@ -50,7 +56,10 @@ export namespace Agent {
 
     const planPermission = mergeAgentPermissions(
       {
-        edit: "deny",
+        edit: {
+          enabled: "deny",
+          external_files: "ask",
+        },
         bash: {
           "cut*": "allow",
           "diff*": "allow",
@@ -143,7 +152,18 @@ export namespace Agent {
           tools: {},
           builtIn: false,
         }
-      const { name, model, prompt, tools, description, temperature, top_p, mode, permission, ...extra } = value
+      const {
+        name,
+        model,
+        prompt,
+        tools,
+        description,
+        temperature,
+        top_p,
+        mode,
+        permission,
+        ...extra
+      } = value
       item.options = {
         ...item.options,
         ...extra,
@@ -212,7 +232,10 @@ export namespace Agent {
   }
 }
 
-function mergeAgentPermissions(basePermission: any, overridePermission: any): Agent.Info["permission"] {
+function mergeAgentPermissions(
+  basePermission: any,
+  overridePermission: any,
+): Agent.Info["permission"] {
   if (typeof basePermission.bash === "string") {
     basePermission.bash = {
       "*": basePermission.bash,
@@ -223,7 +246,23 @@ function mergeAgentPermissions(basePermission: any, overridePermission: any): Ag
       "*": overridePermission.bash,
     }
   }
+
+  // Normalize legacy edit permission
+  if (typeof basePermission.edit === "string") {
+    basePermission.edit = {
+      enabled: basePermission.edit,
+      external_files: "ask",
+    }
+  }
+  if (typeof overridePermission.edit === "string") {
+    overridePermission.edit = {
+      enabled: overridePermission.edit,
+      external_files: "ask",
+    }
+  }
+
   const merged = mergeDeep(basePermission ?? {}, overridePermission ?? {}) as any
+
   let mergedBash
   if (merged.bash) {
     if (typeof merged.bash === "string") {
@@ -240,8 +279,26 @@ function mergeAgentPermissions(basePermission: any, overridePermission: any): Ag
     }
   }
 
+  // Ensure edit is an object
+  let mergedEdit = merged.edit
+  if (typeof mergedEdit === "string") {
+    mergedEdit = {
+      enabled: mergedEdit,
+      external_files: "ask",
+    }
+  }
+  if (!mergedEdit || typeof mergedEdit !== "object") {
+    mergedEdit = {
+      enabled: "allow",
+      external_files: "ask",
+    }
+  }
+
   const result: Agent.Info["permission"] = {
-    edit: merged.edit ?? "allow",
+    edit: {
+      enabled: mergedEdit.enabled ?? "allow",
+      external_files: mergedEdit.external_files ?? "ask",
+    },
     webfetch: merged.webfetch ?? "allow",
     bash: mergedBash ?? { "*": "allow" },
   }

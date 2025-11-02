@@ -191,7 +191,12 @@ export type AgentConfig = {
   description?: string
   mode?: "subagent" | "primary" | "all"
   permission?: {
-    edit?: "ask" | "allow" | "deny"
+    edit?:
+      | ("ask" | "allow" | "deny")
+      | {
+          enabled?: "ask" | "allow" | "deny"
+          external_files?: "ask" | "allow" | "deny"
+        }
     bash?:
       | ("ask" | "allow" | "deny")
       | {
@@ -456,7 +461,12 @@ export type Config = {
   instructions?: Array<string>
   layout?: LayoutConfig
   permission?: {
-    edit?: "ask" | "allow" | "deny"
+    edit?:
+      | ("ask" | "allow" | "deny")
+      | {
+          enabled?: "ask" | "allow" | "deny"
+          external_files?: "ask" | "allow" | "deny"
+        }
     bash?:
       | ("ask" | "allow" | "deny")
       | {

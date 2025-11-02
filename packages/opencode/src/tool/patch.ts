@@ -38,8 +38,10 @@ export const PatchTool = Tool.define("patch", {
       throw new Error("No file changes found in patch")
     }
 
-    // Validate file paths and check permissions
+    // Fetch agent once before the loop
     const agent = await Agent.get(ctx.agent)
+
+    // Validate file paths and check permissions
     const fileChanges: Array<{
       filePath: string
       oldContent: string
@@ -54,7 +56,26 @@ export const PatchTool = Tool.define("patch", {
       const filePath = path.resolve(Instance.directory, hunk.path)
 
       if (!Filesystem.contains(Instance.directory, filePath)) {
-        throw new Error(`File ${filePath} is not in the current working directory`)
+        const action = agent.permission.edit.external_files
+
+        if (action === "deny") {
+          throw new Error(`File ${filePath} is not in the current working directory`)
+        }
+
+        if (action === "ask") {
+          await Permission.ask({
+            type: "external_files",
+            pattern: filePath,
+            sessionID: ctx.sessionID,
+            messageID: ctx.messageID,
+            callID: ctx.callID,
+            title: `Patch file outside working directory: ${path.relative(Instance.worktree, filePath)}`,
+            metadata: {
+              filepath: path.relative(Instance.worktree, filePath),
+              operation: "patch",
+            },
+          })
+        }
       }
 
       switch (hunk.type) {
@@ -127,7 +148,7 @@ export const PatchTool = Tool.define("patch", {
     }
 
     // Check permissions if needed
-    if (agent.permission.edit === "ask") {
+    if (agent.permission.edit.enabled === "ask") {
       await Permission.ask({
         type: "edit",
         sessionID: ctx.sessionID,

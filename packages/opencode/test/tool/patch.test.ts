@@ -1,7 +1,9 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test, spyOn } from "bun:test"
 import path from "path"
 import { PatchTool } from "../../src/tool/patch"
 import { Instance } from "../../src/project/instance"
+import { Permission } from "../../src/permission"
+import { FileTime } from "../../src/file/time"
 import { tmpdir } from "../fixture/fixture"
 import * as fs from "fs/promises"
 
@@ -18,8 +20,9 @@ const patchTool = await PatchTool.init()
 
 describe("tool.patch", () => {
   test("should validate required parameters", async () => {
+    await using tmp = await tmpdir()
     await Instance.provide({
-      directory: "/tmp",
+      directory: tmp.path,
       fn: async () => {
         await expect(patchTool.execute({ patchText: "" }, ctx)).rejects.toThrow(
           "patchText is required",
@@ -29,8 +32,9 @@ describe("tool.patch", () => {
   })
 
   test("should validate patch format", async () => {
+    await using tmp = await tmpdir()
     await Instance.provide({
-      directory: "/tmp",
+      directory: tmp.path,
       fn: async () => {
         await expect(patchTool.execute({ patchText: "invalid patch" }, ctx)).rejects.toThrow(
           "Failed to parse patch",
@@ -40,8 +44,9 @@ describe("tool.patch", () => {
   })
 
   test("should handle empty patch", async () => {
+    await using tmp = await tmpdir()
     await Instance.provide({
-      directory: "/tmp",
+      directory: tmp.path,
       fn: async () => {
         const emptyPatch = `*** Begin Patch
 *** End Patch`
@@ -54,8 +59,23 @@ describe("tool.patch", () => {
   })
 
   test("should reject files outside working directory", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            permission: {
+              edit: {
+                enabled: "allow",
+                external_files: "deny",
+              },
+            },
+          }),
+        )
+      },
+    })
     await Instance.provide({
-      directory: "/tmp",
+      directory: tmp.path,
       fn: async () => {
         const maliciousPatch = `*** Begin Patch
 *** Add File: /etc/passwd
@@ -262,5 +282,301 @@ describe("tool.patch", () => {
         expect(configContent).toBe('{\n  "version": "1.0",\n  "debug": true\n}')
       },
     })
+  })
+})
+
+describe("tool.patch external files", () => {
+  test("should ask permission for external files with default config", async () => {
+    await using tmp = await tmpdir()
+
+    const permissionSpy = spyOn(Permission, "ask").mockImplementation(async () => Promise.resolve())
+
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const patchText = `*** Begin Patch
+*** Add File: ../external.txt
++external content
+*** End Patch`
+
+          await patchTool.execute({ patchText }, ctx)
+
+          // Should ask for external_files permission (edit.enabled is "allow" by default)
+          expect(permissionSpy).toHaveBeenCalledTimes(1)
+          expect(permissionSpy.mock.calls[0][0].type).toBe("external_files")
+        },
+      })
+    } finally {
+      permissionSpy.mockRestore()
+    }
+  })
+
+  test("should deny external files when configured to deny", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            permission: {
+              edit: {
+                enabled: "allow",
+                external_files: "deny",
+              },
+            },
+          }),
+        )
+      },
+    })
+
+    const permissionSpy = spyOn(Permission, "ask").mockImplementation(async () => Promise.resolve())
+
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const patchText = `*** Begin Patch
+*** Add File: ../external.txt
++external content
+*** End Patch`
+
+          await expect(patchTool.execute({ patchText }, ctx)).rejects.toThrow(
+            "is not in the current working directory",
+          )
+          expect(permissionSpy).not.toHaveBeenCalled()
+        },
+      })
+    } finally {
+      permissionSpy.mockRestore()
+    }
+  })
+
+  test("should allow internal files with permission check", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            permission: {
+              edit: {
+                enabled: "ask",
+                external_files: "ask",
+              },
+            },
+          }),
+        )
+      },
+    })
+
+    const permissionSpy = spyOn(Permission, "ask").mockImplementation(async () => Promise.resolve())
+
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const patchText = `*** Begin Patch
+*** Add File: internal.txt
++internal content
+*** End Patch`
+
+          await patchTool.execute({ patchText }, ctx)
+
+          expect(permissionSpy).toHaveBeenCalledTimes(1)
+          expect(permissionSpy.mock.calls[0][0].type).toBe("edit")
+
+          const filePath = path.join(tmp.path, "internal.txt")
+          const content = await fs.readFile(filePath, "utf-8")
+          expect(content).toBe("internal content")
+        },
+      })
+    } finally {
+      permissionSpy.mockRestore()
+    }
+  })
+
+  test("should respect permission config", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            permission: {
+              edit: {
+                enabled: "allow",
+                external_files: "ask",
+              },
+            },
+          }),
+        )
+      },
+    })
+
+    const permissionSpy = spyOn(Permission, "ask").mockImplementation(async () => Promise.resolve())
+
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const patchText = `*** Begin Patch
+*** Add File: internal.txt
++internal content
+*** End Patch`
+
+          await patchTool.execute({ patchText }, ctx)
+
+          // With edit.enabled: "allow", should not ask permission
+          expect(permissionSpy).not.toHaveBeenCalled()
+
+          const filePath = path.join(tmp.path, "internal.txt")
+          const content = await fs.readFile(filePath, "utf-8")
+          expect(content).toBe("internal content")
+        },
+      })
+    } finally {
+      permissionSpy.mockRestore()
+    }
+  })
+
+  test("should validate all file paths before processing", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            permission: {
+              edit: {
+                enabled: "allow",
+                external_files: "deny",
+              },
+            },
+          }),
+        )
+      },
+    })
+
+    const permissionSpy = spyOn(Permission, "ask").mockImplementation(async () => Promise.resolve())
+
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          // Mix of valid and invalid paths
+          const patchText = `*** Begin Patch
+*** Add File: valid.txt
++valid content
+*** Add File: ../external.txt
++external content
+*** End Patch`
+
+          await expect(patchTool.execute({ patchText }, ctx)).rejects.toThrow(
+            "is not in the current working directory",
+          )
+
+          // Should not call permission or create any files
+          expect(permissionSpy).not.toHaveBeenCalled()
+
+          const validPath = path.join(tmp.path, "valid.txt")
+          const exists = await fs
+            .access(validPath)
+            .then(() => true)
+            .catch(() => false)
+          expect(exists).toBe(false)
+        },
+      })
+    } finally {
+      permissionSpy.mockRestore()
+    }
+  })
+
+  test("should handle update operations on internal files", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            permission: {
+              edit: {
+                enabled: "ask",
+                external_files: "ask",
+              },
+            },
+          }),
+        )
+      },
+    })
+    const testFile = path.join(tmp.path, "test.txt")
+    await fs.writeFile(testFile, "line 1\nline 2\nline 3")
+
+    const permissionSpy = spyOn(Permission, "ask").mockImplementation(async () => Promise.resolve())
+
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          // Mark file as read to bypass FileTime.assert
+          FileTime.read(ctx.sessionID, testFile)
+
+          const patchText = `*** Begin Patch
+*** Update File: test.txt
+@@
+ line 1
+-line 2
++line 2 updated
+ line 3
+*** End Patch`
+
+          await patchTool.execute({ patchText }, ctx)
+
+          expect(permissionSpy).toHaveBeenCalledTimes(1)
+          expect(permissionSpy.mock.calls[0][0].type).toBe("edit")
+
+          const content = await fs.readFile(testFile, "utf-8")
+          // Note: patch may add trailing newline
+          expect(content.trim()).toBe("line 1\nline 2 updated\nline 3")
+        },
+      })
+    } finally {
+      permissionSpy.mockRestore()
+    }
+  })
+
+  test("should backward compatible with legacy config format", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            permission: {
+              edit: "allow",
+            },
+          }),
+        )
+      },
+    })
+
+    const permissionSpy = spyOn(Permission, "ask").mockImplementation(async () => Promise.resolve())
+
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const patchText = `*** Begin Patch
+*** Add File: internal.txt
++internal content
+*** End Patch`
+
+          await patchTool.execute({ patchText }, ctx)
+
+          // With legacy config format "allow", should not ask permission
+          expect(permissionSpy).not.toHaveBeenCalled()
+
+          const filePath = path.join(tmp.path, "internal.txt")
+          const content = await fs.readFile(filePath, "utf-8")
+          expect(content).toBe("internal content")
+        },
+      })
+    } finally {
+      permissionSpy.mockRestore()
+    }
   })
 })

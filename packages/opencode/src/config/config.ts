@@ -193,6 +193,9 @@ export namespace Config {
       result.compaction = { ...result.compaction, prune: false }
     }
 
+    // Apply managed settings last - highest priority (enterprise admin-controlled)
+    result = mergeDeep(result, await loadFile(Global.Path.managedConfig)) as Info
+
     result.plugin = deduplicatePlugins(result.plugin ?? [])
 
     return {

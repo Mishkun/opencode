@@ -1,4 +1,5 @@
 import { test, expect, describe, mock } from "bun:test"
+import { test, expect, describe, mock } from "bun:test"
 import { Config } from "../../src/config/config"
 import { Instance } from "../../src/project/instance"
 import { Auth } from "../../src/auth"
@@ -6,7 +7,6 @@ import { tmpdir } from "../fixture/fixture"
 import path from "path"
 import fs from "fs/promises"
 import { pathToFileURL } from "url"
-
 test("loads config with defaults when no files exist", async () => {
   await using tmp = await tmpdir()
   await Instance.provide({

@@ -1,5 +1,4 @@
-import { test, expect, describe, mock } from "bun:test"
-import { test, expect, describe, mock } from "bun:test"
+import { test, expect, describe, mock, afterEach } from "bun:test"
 import { Config } from "../../src/config/config"
 import { Instance } from "../../src/project/instance"
 import { Auth } from "../../src/auth"
@@ -7,6 +6,17 @@ import { tmpdir } from "../fixture/fixture"
 import path from "path"
 import fs from "fs/promises"
 import { pathToFileURL } from "url"
+import { Global } from "../../src/global"
+
+afterEach(async () => {
+  await fs.rm(Global.Path.managedConfig, { force: true }).catch(() => {})
+})
+
+async function writeManagedSettings(settings: object) {
+  await fs.mkdir(path.dirname(Global.Path.managedConfig), { recursive: true })
+  await Bun.write(Global.Path.managedConfig, JSON.stringify(settings))
+}
+
 test("loads config with defaults when no files exist", async () => {
   await using tmp = await tmpdir()
   await Instance.provide({
@@ -890,6 +900,95 @@ test("migrates legacy write tool to edit permission", async () => {
       expect(config.agent?.["test"]?.permission).toEqual({
         edit: "allow",
       })
+    },
+  })
+})
+
+// Managed settings tests
+// Note: preload.ts sets OPENCODE_TEST_MANAGED_CONFIG which Global.Path.managedConfig uses
+
+test("managed settings override user settings", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          model: "user/model",
+          share: "auto",
+          username: "testuser",
+        }),
+      )
+    },
+  })
+
+  await writeManagedSettings({
+    $schema: "https://opencode.ai/config.json",
+    model: "managed/model",
+    share: "disabled",
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await Config.get()
+      expect(config.model).toBe("managed/model")
+      expect(config.share).toBe("disabled")
+      expect(config.username).toBe("testuser")
+    },
+  })
+})
+
+test("managed settings override project settings", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          autoupdate: true,
+          disabled_providers: [],
+          theme: "dark",
+        }),
+      )
+    },
+  })
+
+  await writeManagedSettings({
+    $schema: "https://opencode.ai/config.json",
+    autoupdate: false,
+    disabled_providers: ["openai"],
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await Config.get()
+      expect(config.autoupdate).toBe(false)
+      expect(config.disabled_providers).toEqual(["openai"])
+      expect(config.theme).toBe("dark")
+    },
+  })
+})
+
+test("missing managed settings file is not an error", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          model: "user/model",
+        }),
+      )
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await Config.get()
+      expect(config.model).toBe("user/model")
     },
   })
 })

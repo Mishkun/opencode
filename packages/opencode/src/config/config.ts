@@ -174,7 +174,7 @@ export namespace Config {
     }
 
     // Migrate deprecated mode field to agent field
-    for (const [name, mode] of Object.entries(result.mode)) {
+    for (const [name, mode] of Object.entries(result.mode ?? {})) {
       result.agent = mergeDeep(result.agent ?? {}, {
         [name]: {
           ...mode,

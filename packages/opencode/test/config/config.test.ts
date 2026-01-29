@@ -8,13 +8,16 @@ import fs from "fs/promises"
 import { pathToFileURL } from "url"
 import { Global } from "../../src/global"
 
+// Get managed config directory from environment (set in preload.ts)
+const managedConfigDir = process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR!
+
 afterEach(async () => {
-  await fs.rm(Global.Path.managedConfig, { force: true }).catch(() => {})
+  await fs.rm(managedConfigDir, { force: true, recursive: true }).catch(() => {})
 })
 
-async function writeManagedSettings(settings: object) {
-  await fs.mkdir(path.dirname(Global.Path.managedConfig), { recursive: true })
-  await Bun.write(Global.Path.managedConfig, JSON.stringify(settings))
+async function writeManagedSettings(settings: object, filename = "opencode.json") {
+  await fs.mkdir(managedConfigDir, { recursive: true })
+  await Bun.write(path.join(managedConfigDir, filename), JSON.stringify(settings))
 }
 
 async function writeConfig(dir: string, config: object, name = "opencode.json") {
